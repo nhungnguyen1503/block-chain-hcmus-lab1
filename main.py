@@ -1,28 +1,26 @@
-import multiprocessing
 from peer import run_peer
+import multiprocessing
 
 if __name__ == "__main__":
-    # Định nghĩa cấu hình cho từng peer
-    peer_configs = [
-        ("Peer1", 5001, [("localhost", 5002), ("localhost", 5003), ("localhost", 5004), ("localhost", 5005)]),
-        ("Peer2", 5002, [("localhost", 5001), ("localhost", 5003), ("localhost", 5004), ("localhost", 5005)]),
-        ("Peer3", 5003, [("localhost", 5001), ("localhost", 5002), ("localhost", 5004), ("localhost", 5005)]),
-        ("Peer4", 5004, [("localhost", 5001), ("localhost", 5002), ("localhost", 5003), ("localhost", 5005)]),
-        ("Peer5", 5005, [("localhost", 5001), ("localhost", 5002), ("localhost", 5003), ("localhost", 5004)]),
+    peers = [
+        {"id": 1, "port": 5001, "is_byzantine": False},
+        {"id": 2, "port": 5002, "is_byzantine": False},
+        {"id": 3, "port": 5003, "is_byzantine": True},
+        {"id": 4, "port": 5004, "is_byzantine": False},
+        {"id": 5, "port": 5005, "is_byzantine": False},
     ]
 
-    # Khởi động mỗi peer trong một process
     processes = []
-    for peer_name, port, peer_list in peer_configs:
-        process = multiprocessing.Process(target=run_peer, args=(peer_name, port, peer_list))
+    for peer in peers:
+        # Tạo danh sách các peer khác
+        other_peers = [(p["id"], p["port"]) for p in peers if p["id"] != peer["id"]]
+
+        # Truyền danh sách này vào hàm `run_peer`
+        process = multiprocessing.Process(
+            target=run_peer, args=(peer["id"], peer["port"], other_peers, peer["is_byzantine"])
+        )
         process.start()
         processes.append(process)
 
-    # Chờ các process hoàn thành
-    try:
-        for process in processes:
-            process.join()
-    except KeyboardInterrupt:
-        print("Shutting down all peers...")
-        for process in processes:
-            process.terminate()
+    for process in processes:
+        process.join()
