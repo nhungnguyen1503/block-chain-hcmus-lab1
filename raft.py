@@ -33,6 +33,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         self.log = []
         self.votes_received = 0
         self.peers = peers
+        self.active_peers = set(peers)
         self.leader_id = None
         self.commit_index = 0
         self.last_applied = 0
@@ -79,17 +80,17 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 stub = raft_pb2_grpc.RaftStub(channel)
                 request = raft_pb2.RequestVoteRequest(
                     term=self.current_term,
-                    candidateId=str(self.node_id),  # Ensure candidateId is a string
+                    candidateId=str(self.node_id),
                     lastLogIndex=len(self.log) - 1,
                     lastLogTerm=self.log[-1].term if self.log else 0,
                 )
                 logging.info(f"Node {self.node_id} sending RequestVote to {peer}: term={self.current_term}, lastLogIndex={request.lastLogIndex}, lastLogTerm={request.lastLogTerm}")
-                response = stub.RequestVote(request, timeout=500)  # Increase timeout
+                response = stub.RequestVote(request, timeout=500)
                 logging.info(f"Received RequestVote response from Node {peer}: {response}")
                 if response.voteGranted:
                     with self.lock:
                         self.votes_received += 1
-                        if self.votes_received > len(self.peers) // 2:
+                        if self.votes_received > len(self.active_peers) // 2:  # Use active peers for majority calculation
                             self.state = 'leader'
                             self.leader_id = self.node_id
                             logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
@@ -97,6 +98,8 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                             self.heartbeat()
         except Exception as e:
             logging.error(f"Node {self.node_id} failed to contact Node {peer}: {e}")
+            # Consider the peer inactive if it fails
+            self.active_peers.discard(peer)
 
     def heartbeat(self):
         while self.state == 'leader':
@@ -126,17 +129,6 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 logging.info(f"Node {self.node_id} sending AppendEntries to Node {peer}: {request}")
                 response = stub.AppendEntries(request, timeout=5)
 
-                # If the response term is higher, step down
-                if response.term > self.current_term:
-                    logging.info(f"Node {self.node_id} stepping down: higher term {response.term} received.")
-                    self.current_term = response.term
-                    self.state = 'follower'
-                    self.leader_id = None
-                    self.reset_election_timer()
-        except Exception as e:
-            logging.error(f"Failed to send AppendEntries to Node {peer}: {e}")
-
-                
         except Exception as e:
             logging.error(f"Failed to send AppendEntries to Node {peer}: {e}")
 
