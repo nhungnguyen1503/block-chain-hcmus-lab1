@@ -31,7 +31,13 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         self.current_term = 0
         self.voted_for = None
         self.state = 'follower'
-        self.log = []
+
+        # Đọc dữ liệu log từ file
+        self.file_path = f"Save log/log of node {self.node_id}.txt"
+        self.log = self.load_log_from_file()
+        if self.log:
+            self.current_term = self.log[-1]['term']
+        
         self.votes_received = 0
         self.peers = peers
         self.active_peers = set(peers)
@@ -39,12 +45,16 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         self.commit_index = 0
         self.last_applied = 0
         self.lock = threading.Lock()
+
         self.kv_store = {}
         self.election_timeout = self.get_election_timeout()
         self.election_timer = threading.Timer(self.election_timeout, self.start_election)
         self.election_timer.start()
-        self.tied_vote_timeout = 4  # Timeout duration in seconds for tied votes
+        self.tied_vote_timeout = 8  # Timeout duration in seconds for tied votes
         self.tied_vote_in_progress = False  # Track if a tie vote timeout is in progress
+
+        self.nextIndex= {peer: len(self.log) for peer in self.peers}
+
 
         # Attach a filter to ensure `node_id` is always available
         node_id_filter = NodeIDFilter(self.node_id)
@@ -53,7 +63,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         logging.info(f"Node {self.node_id} initialized with peers: {self.peers}")
 
     def get_election_timeout(self):
-        return 3 + ( 2 * random.random())
+        return 15 + ( 1.5 * random.random())
 
     def reset_election_timer(self):
         self.election_timer.cancel()
@@ -112,7 +122,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                     term=self.current_term,
                     candidateId=str(self.node_id),
                     lastLogIndex=len(self.log) - 1,
-                    lastLogTerm=self.log[-1].term if self.log else 0,
+                    lastLogTerm=self.log[-1]['term'] if self.log else 0,
                 )
                 logging.info(f"Node {self.node_id} sending RequestVote to {peer}: term={self.current_term}, lastLogIndex={request.lastLogIndex}, lastLogTerm={request.lastLogTerm}")
                 response = stub.RequestVote(request, timeout=500)
@@ -146,36 +156,81 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                     break
             logging.info("-" * 50)
             logging.info(f"Node {self.node_id} sending heartbeats to all peers")
+
             with ThreadPoolExecutor() as executor:
                 for peer in self.peers:
                     executor.submit(self.send_append_entries, peer)
-            time.sleep(0.5)
+            time.sleep(3.5)
+
+    def recieve_entries_from_client(self, request):
+        try:
+            # Tạo entry mới từ yêu cầu của client
+            new_entry = {"term": self.current_term, "command": request.command}
+            logging.info(f"Node {self.node_id} received new entry from client: {new_entry}")
+
+            # Thêm entry mới vào log của leader
+            with self.lock:
+                self.log.append(new_entry)
+                logging.info(f"Node {self.node_id} added new entry to log: {self.log}")
+
+            # Gửi entry mới tới các follower
+            _entries = [
+                raft_pb2.LogEntry(term=new_entry["term"], command=new_entry["command"])
+            ]
+
+            with ThreadPoolExecutor() as executor:
+                    for peer in self.peers:
+                        executor.submit(self.send_append_entries, peer, [])
+                    time.sleep(3.5)
+
+        except Exception as e:
+            logging.error(f"Failed to process new entry from client: {e}")
 
     def send_append_entries(self, peer):
         try:
             with grpc.insecure_channel(f'localhost:{peer}') as channel:
                 stub = raft_pb2_grpc.RaftStub(channel)
-                prev_log_index = len(self.log) - 1
-                prev_log_term = self.log[prev_log_index].term if prev_log_index >= 0 else 0
-
+                prev_log_index = self.nextIndex[peer] - 1
+                if self.nextIndex[peer] == len(self.log): # Nếu Leader  và Follower giống nhau thì _entries = []
+                    _entries = []
+                else:
+                    _entries = self.log[prev_log_index:]
+                
+                prev_log_term = self.log[prev_log_index]['term'] if prev_log_index >= 0 else 0
                 request = raft_pb2.AppendEntriesRequest(
                     term=self.current_term,
                     leaderId=str(self.node_id),
                     prevLogIndex=prev_log_index,
                     prevLogTerm=prev_log_term,
-                    entries=[],
+                    entries=_entries,
                     leaderCommit=self.commit_index,
                 )
-
                 logging.info(f"Node {self.node_id} sending AppendEntries to Node {peer}: {request}")
                 response = stub.AppendEntries(request, timeout=5)
-
+                if response.success:
+                    self.nextIndex[peer] = len(self.log) # khi success thì đặt lại nextIndex 
+                    logging.info(f"Node {peer} successfully appended entries.")
+                else:
+                    logging.error(f"Node {peer} failed to append entries. Adjusting prevLogIndex and retrying...")
+                    if response.term == self.current_term:
+                        # Lùi nextIndex
+                        self.nextIndex[peer] = self.nextIndex[peer] - 1 
+                        if self.nextIndex[peer] < 0:
+                            logging.error("Cannot decrement nextIndex further. Aborting append.")
+                    else:
+                        logging.error("Term mismatch. Aborting append.")
+                        
         except Exception as e:
             logging.error(f"Failed to send AppendEntries to Node {peer}: {e}")
 
     def RequestVote(self, request, context):
         logging.info(f"RequestVote called on node {self.node_id} with request:\n{request}")
         with self.lock:
+            if self.state == 'candidate': # Nếu node đang là candidate thì không được vote
+                vote_granted = False 
+                return raft_pb2.RequestVoteResponse(term=self.current_term, voteGranted=vote_granted)
+
+
             if request.term > self.current_term:
                 logging.info(f"Node {self.node_id} updating term from {self.current_term} to {request.term} and transitioning to follower.")
                 self.current_term = request.term
@@ -201,20 +256,59 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         with self.lock:
             if request.term < self.current_term:
                 return raft_pb2.AppendEntriesResponse(term=self.current_term, success=False)
-            
-            if request.term > self.current_term:
-                logging.info(f"Node {self.node_id} updating term from {self.current_term} to {request.term} and transitioning to follower.")
+            else:
                 self.current_term = request.term
                 self.state = 'follower'
-                self.voted_for = None
+                self.leader_id = request.leaderId
                 self.reset_election_timer()
+            if request.entries:
+                print(request.entries[0].command)
+            print("=================================================")
+            if request.prevLogIndex < len(self.log):
+                print(self.log[request.prevLogIndex]['command'])
 
-            # Update leader information
-            self.leader_id = request.leaderId
-            self.reset_election_timer()  # Ensure election timer is reset
+            # Bước 3: Kiểm tra prevLogIndex và prevLogTerm Và cả command
+            if request.prevLogIndex >= 0:
+                if request.prevLogIndex >= len(self.log):
+                    logging.info(f"Node {self.node_id} rejecting AppendEntries due to log mismatch at prevLogIndex {request.prevLogIndex}")
+                    return raft_pb2.AppendEntriesResponse(term=self.current_term, success=False)
+                elif self.log[request.prevLogIndex]['term'] != request.prevLogTerm:
+                    logging.info(f"Node {self.node_id} rejecting AppendEntries due to log match at prevLogIndex but mismatch term {self.log[request.prevLogIndex]['term']} and {request.prevLogTerm}")
+                    return raft_pb2.AppendEntriesResponse(term=self.current_term, success=False)
+                elif request.entries:
+                    if self.log[request.prevLogIndex]['command'] != request.entries[0].command:
+                        logging.info(f"Node {self.node_id} rejecting AppendEntries due to log match at prevLogIndex and term but mismatch command {self.log[request.prevLogIndex]['term']} and {request.prevLogTerm}")
+                        return raft_pb2.AppendEntriesResponse(term=self.current_term, success=False)
 
-        logging.info(f"AppendEntries response from node {self.node_id}: term={self.current_term}, success=True")
-        return raft_pb2.AppendEntriesResponse(term=self.current_term, success=True)
+            #  Check HeartBeat:
+            if not request.entries: #  entries rỗng
+                logging.info(f"AppendEntries [] response from node {self.node_id}: term={self.current_term}, success=True")
+                return raft_pb2.AppendEntriesResponse(term=self.current_term, success=True)
+
+            # Bước 4: Xóa các entry conflict 
+            for i, entry in enumerate(request.entries):
+                print("i của enum", i)
+                if len(self.log) > request.prevLogIndex + 1 + i:
+                    print(self.log[request.prevLogIndex  + i], " and ", entry.term)
+                    if self.log[request.prevLogIndex + i]['term'] != entry.term or self.log[request.prevLogIndex]['command'] != entry.command:
+                        logging.info(f"Node {self.node_id} removing conflicting entries starting from index {request.prevLogIndex + i} and {i}")
+                        self.log = self.log[:request.prevLogIndex + i]
+                        break
+
+            # Bước 5: Append các entries mới
+            for i, entry in enumerate(request.entries):
+                if request.prevLogIndex + 1 + i > len(self.log):
+                    self.log.append({"term": entry.term, "command": entry.command})
+                    logging.info(f"Node {self.node_id} appended new entry: {self.log[-1]}")
+
+            # Bước 6: Cập nhật commitIndex
+            if request.leaderCommit > self.commit_index:
+                self.commit_index = min(request.leaderCommit, len(self.log) - 1)
+                logging.info(f"Node {self.node_id} updated commitIndex to {self.commit_index}")
+    
+            logging.info(f"AppendEntries response from node {self.node_id}: term={self.current_term}, success=True")
+            self.save_log_to_file()
+            return raft_pb2.AppendEntriesResponse(term=self.current_term, success=True)
 
 
 
@@ -225,6 +319,37 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 term=self.current_term,
                 state=self.state
             )
+        
+    def load_log_from_file(self):
+        file_path = self.file_path
+        log = []
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    term, command = line.strip().split(",")
+                    log.append({"term": int(term), "command": command})
+            print(f"Log loaded from {file_path}: {log}")
+        except Exception as e:
+            print(f"Failed to load log from {file_path}: {e}")
+        return log
+
+    def save_log_to_file(self):
+        """
+        Ghi danh sách log vào file.
+
+        :param log: Danh sách các entries log (list of dicts).
+        :param file_path: Đường dẫn tới file cần ghi.
+        """
+        log = self.log
+        file_path = self.file_path
+        try:
+            with open(file_path, "w") as f:
+                for entry in log:
+                    # Mỗi entry được ghi ở định dạng: term,command
+                    f.write(f"{entry['term']},{entry['command']}\n")
+            print(f"Log successfully saved to {file_path}")
+        except Exception as e:
+            print(f"Failed to save log to {file_path}: {e}")
 
     def handle_tied_vote(self):
         """Handle the tie vote scenario by putting the node in timeout for a few seconds."""

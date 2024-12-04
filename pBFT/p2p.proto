@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package pbft;
+
+// Message for the request to vote in PBFT
+message RequestVote {
+    int32 term = 1;
+    string candidate_id = 2;
+    int32 last_log_index = 3;
+    int32 last_log_term = 4;
+}
+
+// Response for the vote request
+message RequestVoteResponse {
+    int32 term = 1;
+    bool vote_granted = 2;
+}
+
+// Message for the AppendEntries (log entries) in PBFT
+message AppendEntries {
+    int32 term = 1;
+    string leader_id = 2;
+    int32 prev_log_index = 3;
+    int32 prev_log_term = 4;
+    repeated LogEntry entries = 5;
+    int32 leader_commit = 6;
+}
+
+// Message for a log entry
+message LogEntry {
+    int32 term = 1;
+    string command = 2;
+}
+
+// Response to an AppendEntries request
+message AppendEntriesResponse {
+    int32 term = 1;
+    bool success = 2;
+}
+
+// Service definition for PBFT protocol
+service PBFT {
+    rpc RequestVote(RequestVote) returns (RequestVoteResponse);
+    rpc AppendEntries(AppendEntries) returns (AppendEntriesResponse);
+}
