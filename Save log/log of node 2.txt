@@ -1,3 +1,6 @@
 1,set x=10
 1,set y=20
 2,set z=30
+3,add x 2
+3,delete y
+3,add z 30
