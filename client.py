@@ -26,20 +26,27 @@ def get_committed_logs(stub):
     return stub.GetCommittedLogs(request)
 
 
-def append_entries(stub, term, leader_id, prev_log_index, prev_log_term, entries, leader_commit):
-    request = raft_pb2.AppendEntriesRequest(
-        term=term,
-        leaderId=leader_id,
-        prevLogIndex=prev_log_index,
-        prevLogTerm=prev_log_term,
-        entries=[
-            raft_pb2.LogEntry(term=entries[i], command=entries[i + 1])
-            for i in range(0, len(entries), 2)
-        ],
-        leaderCommit=leader_commit,
-    )
-    return stub.AppendEntries(request)
+def append_entries(stub, term, leader_id, prev_log_index, prev_log_term, commands, leader_commit):
+    try:
+        request = raft_pb2.AppendEntriesRequest(
+            term=term,
+            leaderId=leader_id,
+            prevLogIndex=prev_log_index,
+            prevLogTerm=prev_log_term,
+            entries=[
+                raft_pb2.LogEntry(term=term, command=command)
+                for command in commands  # Iterate over the commands list
+            ],
+            leaderCommit=leader_commit,
+        )
+        return stub.AppendEntries(request)
+    except Exception as e:
+        logging.error(f"Error in append_entries: {e}")
+        raise
 
+def set_peers(stub, peers):
+    request = raft_pb2.SetPeersRequest(peers=peers)
+    return stub.SetPeers(request)
 
 def run_client(node_address, action, *args):
     with grpc.insecure_channel(node_address) as channel:
@@ -50,27 +57,26 @@ def run_client(node_address, action, *args):
             term, candidate_id, last_log_index, last_log_term = map(int, args)
             response = request_vote(stub, term, candidate_id, last_log_index, last_log_term)
             print(f"RequestVote response: term={response.term}, voteGranted={response.voteGranted}")
+        
+        elif action == 'set_peers':
+            peers = list(map(int, args))
+            response = set_peers(stub, peers)
+            print(f"SetPeers response: success={response.success}, message={response.message}")
 
         elif action == 'append_entries':
-            # Parse common arguments
-            term = int(args[0])
-            leader_id = int(args[1])
-            prev_log_index = int(args[2])
-            prev_log_term = int(args[3])
-            leader_commit = int(args[-1])
+                term = int(args[0])
+                leader_id = args[1]
+                prev_log_index = int(args[2])
+                prev_log_term = int(args[3])
+                leader_commit = int(args[-1])
 
-            # Entries: Remaining arguments (skipping the last one, which is leader_commit)
-            entries_args = args[4:-1]
-            if len(entries_args) % 2 != 0:
-                raise ValueError("Entries must have even number of arguments (term and command pairs).")
+                # Commands are the remaining arguments after the header fields
+                commands = args[4:-1]
 
-            # Create entries as list of term-command pairs
-            entries = [(int(entries_args[i]), entries_args[i + 1]) for i in range(0, len(entries_args), 2)]
-
-            response = append_entries(
-                stub, term, leader_id, prev_log_index, prev_log_term, entries, leader_commit
-            )
-            print(f"AppendEntries response: term={response.term}, success={response.success}")
+                response = append_entries(
+                    stub, term, leader_id, prev_log_index, prev_log_term, commands, leader_commit
+                )
+                print(f"AppendEntries response: term={response.term}, success={response.success}")
 
         elif action == 'get_status':
             response = get_status(stub)

@@ -6,6 +6,7 @@ service Raft {
     rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
     rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
     rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+    rpc SetPeers(SetPeersRequest) returns (SetPeersResponse);
 }
 
 message RequestVoteRequest {
@@ -44,4 +45,13 @@ message GetStatusRequest {}
 message GetStatusResponse {
   int32 term = 1;
   string state = 2;
+}
+
+message SetPeersRequest {
+    repeated int32 peers = 1;
+}
+
+message SetPeersResponse {
+    bool success = 1;
+    string message = 2;
 }

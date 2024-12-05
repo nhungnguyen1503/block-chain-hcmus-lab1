@@ -308,7 +308,21 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         time.sleep(self.tied_vote_timeout)
         self.tied_vote_in_progress = False
         logging.info(f"Node {self.node_id} timeout finished. Ready for next election.")
-
+    
+    def SetPeers(self, request, context):
+        try:
+            with self.lock:
+                new_peers = set(request.peers) - {self.node_id}  # Exclude itself
+                logging.info(f"Node {self.node_id} updating peers: {new_peers}")
+                self.peers = list(new_peers)
+                self.active_peers = set(new_peers)
+                self.nextIndex = {peer: len(self.log) for peer in self.peers}
+            logging.info(f"Node {self.node_id} updated peers to: {self.peers}")
+            return raft_pb2.SetPeersResponse(success=True, message="Peers updated successfully.")
+        except Exception as e:
+            logging.error(f"Error in SetPeers: {e}")
+            return raft_pb2.SetPeersResponse(success=False, message=str(e))
+        
 def serve(node_id, port, peers):
     server = grpc.server(ThreadPoolExecutor(max_workers=10))
     raft_servicer = RaftServicer(node_id, peers)

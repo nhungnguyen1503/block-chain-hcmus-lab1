@@ -48,3 +48,5 @@ python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 0
 python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 2 "delete y" 0
 
 ```
+
+python client.py localhost:50052 set_peers 50051 50053
