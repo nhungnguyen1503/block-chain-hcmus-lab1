@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+service Peer {
+    rpc SendMessage (Message) returns (Response);
+    rpc GetPeers (Empty) returns (PeerList);
+}
+
+message Message {
+    string sender = 1;
+    string content = 2;
+}
+
+message Response {
+    string status = 1;
+}
+
+message PeerInfo {
+    string address = 1;
+}
+
+message PeerList {
+    repeated PeerInfo peers = 1;
+}
+
+message Empty {}
