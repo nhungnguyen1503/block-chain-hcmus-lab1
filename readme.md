@@ -44,5 +44,7 @@ GetStatus response: term=1, state=leader
 ```
 
 python client.py localhost:50052 request_vote 1 2 0 0
-python client.py localhost:50051 append_entries 1 1 0 0 "[{'term': 1, 'command': 'set x 10'}]" 0
+python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 0
+python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 2 "delete y" 0
+
 ```
