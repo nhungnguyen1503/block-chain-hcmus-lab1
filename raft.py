@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+import signal
 import random
 import grpc
 from concurrent.futures import ThreadPoolExecutor
@@ -62,7 +63,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         logging.info(f"Node {self.node_id} initialized with peers: {self.peers}")
 
     def get_election_timeout(self):
-        return 15 + ( 1.5 * random.random())
+        return 3 + ( 3 * random.random())
 
     def reset_election_timer(self):
         self.election_timer.cancel()
@@ -73,6 +74,13 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         with self.lock:
             if self.state == 'leader' or self.tied_vote_in_progress:
                 return  
+            
+            # Check if there are missing peers in active_peers
+            missing_peers = [peer for peer in self.peers if peer not in self.active_peers]
+            if missing_peers:
+                logging.info(f"Node {self.node_id} not starting election due to missing peers: {missing_peers}")
+                return
+
             self.state = 'candidate'
             self.current_term += 1
             self.voted_for = self.node_id
@@ -82,7 +90,30 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             for peer in self.peers:
                 executor.submit(self.send_request_vote, peer)
         logging.info(f"Node {self.node_id} sent vote requests to peers: {self.peers}")
-        self.reset_election_timer()
+        with ThreadPoolExecutor() as executor:
+            for peer in self.peers:
+                executor.submit(self.send_request_vote, peer)
+        logging.info(f"Node {self.node_id} sent vote requests to peers: {self.peers}")
+        
+        # Wait for election results with a slight delay for processing
+        time.sleep(2)
+        with self.lock:
+            if self.votes_received > len(self.active_peers) // 2:
+                self.state = 'leader'
+                self.leader_id = self.node_id
+                logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
+                self.reset_election_timer()
+                self.heartbeat()
+            elif self.votes_received == len(self.active_peers) // 2:
+                # Tied vote detected
+                logging.info(f"Node {self.node_id} detected a tie in election for term {self.current_term}")
+                threading.Thread(target=self.handle_tied_vote).start()
+            else:
+                # Election failed, reset to follower and wait for the next election
+                logging.info(f"Node {self.node_id} failed to win election for term {self.current_term}, returning to follower state")
+                self.state = 'follower'
+                self.reset_election_timer()
+
 
     def send_request_vote(self, peer):
         try:
@@ -119,7 +150,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             with ThreadPoolExecutor() as executor:
                 for peer in self.peers:
                     executor.submit(self.send_append_entries, peer)
-            time.sleep(3.5)
+            time.sleep(2)
 
     def recieve_entries_from_client(self, request):
         try:
@@ -330,6 +361,18 @@ def serve(node_id, port, peers):
     server.add_insecure_port(f'[::]:{port}')
     server.start()
     logging.info(f"Node {node_id} gRPC server started and listening on port {port}")
+
+    # Graceful shutdown handling
+    def handle_termination(signum, frame):
+        logging.info("Graceful shutdown initiated...")
+        raft_servicer.active_peers.remove(raft_servicer.node_id)
+        raft_servicer.election_timer.cancel()
+        server.stop(0)  # Stop the gRPC server
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_termination)
+    signal.signal(signal.SIGTERM, handle_termination)
+
     server.wait_for_termination()
 
 
