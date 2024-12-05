@@ -48,6 +48,17 @@ def set_peers(stub, peers):
     request = raft_pb2.SetPeersRequest(peers=peers)
     return stub.SetPeers(request)
 
+# Đang chờ viết Giao Thức
+# def append_commands(stub, commands):
+#     try:
+#         request = raft_pb2.AppendCommandsRequest(
+#             commands = commands
+#         )
+#         return stub.AppendCommandsResponse(request)
+#     except Exception as e:
+#         logging.error(f"Error in append_commands: {e}")
+#         raise
+
 def run_client(node_address, action, *args):
     with grpc.insecure_channel(node_address) as channel:
         stub = raft_pb2_grpc.RaftStub(channel)
@@ -77,6 +88,14 @@ def run_client(node_address, action, *args):
                     stub, term, leader_id, prev_log_index, prev_log_term, commands, leader_commit
                 )
                 print(f"AppendEntries response: term={response.term}, success={response.success}")
+        elif action == 'append_commands':
+                # Commands are the remaining arguments after the header fields
+                commands = list(args[0:])
+                print(commands)
+
+                # Đang chờ viết Giao Thức
+                # response = append_commands(stub, commands)
+                # print(f"AppendEntries response: term={response.term}, success={response.success}")
 
         elif action == 'get_status':
             response = get_status(stub)

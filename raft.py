@@ -152,29 +152,55 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                     executor.submit(self.send_append_entries, peer)
             time.sleep(2)
 
-    def recieve_entries_from_client(self, request):
+    # def recieve_entries_from_client(self, request):
+    #     try:
+    #         # Tạo entry mới từ yêu cầu của client
+    #         new_entry = {"term": self.current_term, "command": request.command}
+    #         logging.info(f"Node {self.node_id} received new entry from client: {new_entry}")
+
+    #         # Thêm entry mới vào log của leader
+    #         with self.lock:
+    #             self.log.append(new_entry)
+    #             logging.info(f"Node {self.node_id} added new entry to log: {self.log}")
+
+    #         # Gửi entry mới tới các follower
+    #         _entries = [
+    #             raft_pb2.LogEntry(term=new_entry["term"], command=new_entry["command"])
+    #         ]
+
+    #         with ThreadPoolExecutor() as executor:
+    #                 for peer in self.peers:
+    #                     executor.submit(self.send_append_entries, peer, [])
+    #                 time.sleep(3.5)
+
+    #     except Exception as e:
+    #         logging.error(f"Failed to process new entry from client: {e}")
+
+    def recieve_commands_from_client(self, request):
         try:
-            # Tạo entry mới từ yêu cầu của client
-            new_entry = {"term": self.current_term, "command": request.command}
-            logging.info(f"Node {self.node_id} received new entry from client: {new_entry}")
+            # Tạo danh sách entries từ các command trong request.commands
+            entries = []
+            for command in request.commands:
+                entry = {
+                    "term": self.current_term,  # Sử dụng current_term của leader
+                    "command": command          # Command nhận từ request
+                }
+                entries.append(entry)
 
-            # Thêm entry mới vào log của leader
-            with self.lock:
-                self.log.append(new_entry)
-                logging.info(f"Node {self.node_id} added new entry to log: {self.log}")
+            # Log thông tin để kiểm tra
+            logging.info(f"Received commands from client: {request.commands}")
+            logging.info(f"Generated log entries: {entries}")
 
-            # Gửi entry mới tới các follower
-            _entries = [
-                raft_pb2.LogEntry(term=new_entry["term"], command=new_entry["command"])
-            ]
 
-            with ThreadPoolExecutor() as executor:
-                    for peer in self.peers:
-                        executor.submit(self.send_append_entries, peer, [])
-                    time.sleep(3.5)
+            self.log.extend(entries)
+            # Không cần phải gửi các entries này tới các server(Follower) khác, vì nó sẽ tự động gửi ở Heartbeat tiếp theo 
+
 
         except Exception as e:
             logging.error(f"Failed to process new entry from client: {e}")
+
+
+    
 
     def send_append_entries(self, peer):
         try:
