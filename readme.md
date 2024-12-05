@@ -21,7 +21,7 @@ python raft.py 3 50053 50051 50052 50054
 python raft.py 4 50054 50051 50052 50053
 
 ```
-#Chạy Mạng RAFT 4 nodes
+#Chạy Mạng RAFT 5 nodes
 python raft.py 1 50051 50052 50053 50054 50055
 python raft.py 2 50052 50051 50053 50054 50055
 python raft.py 3 50053 50051 50052 50054 50055
@@ -56,3 +56,19 @@ python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 2 "delete y
 ```
 
 python client.py localhost:50052 set_peers 50051 50053
+
+```Client gửi tập command đến Server (Leader).
+Mô tả: Đưa "set x 10" "delete y" vào list() và gửi nó  cho Server (Leader), nhận về success(thành công hoặc thất bại).
+
+raft_pb2.AppendCommandRequest(
+    commands =[]
+)
+raft_pb2.AppendCommandResponse(
+    term=term,
+    leaderId=leader_id,
+    success =[]
+)
+
+
+python client.py localhost:50051 append_commands "set x 10" "delete y"
+```
