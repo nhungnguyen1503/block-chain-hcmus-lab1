@@ -63,7 +63,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         logging.info(f"Node {self.node_id} initialized with peers: {self.peers}")
 
     def get_election_timeout(self):
-        return 3 + ( 3 * random.random())
+        return 10 + ( 3 * random.random())
 
     def reset_election_timer(self):
         self.election_timer.cancel()
@@ -90,15 +90,14 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             for peer in self.peers:
                 executor.submit(self.send_request_vote, peer)
         logging.info(f"Node {self.node_id} sent vote requests to peers: {self.peers}")
-        with ThreadPoolExecutor() as executor:
-            for peer in self.peers:
-                executor.submit(self.send_request_vote, peer)
-        logging.info(f"Node {self.node_id} sent vote requests to peers: {self.peers}")
         
         # Wait for election results with a slight delay for processing
         time.sleep(2)
         with self.lock:
             if self.votes_received > len(self.active_peers) // 2:
+                print(self.votes_received)
+                print(self.active_peers)
+
                 self.state = 'leader'
                 self.leader_id = self.node_id
                 logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
@@ -176,8 +175,16 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
     #     except Exception as e:
     #         logging.error(f"Failed to process new entry from client: {e}")
 
-    def recieve_commands_from_client(self, request):
+    def AppendCommands(self, request, context):
         try:
+            print(request)
+            if not request.commands:
+                logging.warning("Received an empty commands list from client.")
+                return raft_pb2.AppendCommandsResponse(
+                    term=self.current_term,
+                    leaderId=str(self.node_id),
+                    success=False
+                )
             # Tạo danh sách entries từ các command trong request.commands
             new_entries = []
             for command in request.commands:
@@ -197,13 +204,13 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
 
             # ** Không cần phải gửi các entries này tới các server(Follower) khác, vì nó sẽ tự động gửi ở Heartbeat tiếp theo **
 
-            return raft_pb2.RequestVoteResponse(term=self.current_term, leaderId = str(self.node_id) ,success= True)
+            return raft_pb2.AppendCommandsResponse(term=self.current_term, leaderId = str(self.node_id) ,success= True)
 
 
 
         except Exception as e:
             logging.error(f"Failed to process new entry from client: {e}")
-            return raft_pb2.RequestVoteResponse(term=self.current_term, leaderId = str(self.node_id) ,success= False)
+            return raft_pb2.AppendCommandsResponse(term=self.current_term, leaderId = str(self.node_id) ,success= False)
 
 
     def send_append_entries(self, peer):

@@ -47,15 +47,9 @@ python client.py localhost:50053 get_status
 INFO:root:Client connected to localhost:50053
 GetStatus response: term=1, state=leader
 
+```SET PEERS cho phân mảnh mạng
+python client.py localhost:50051 set_peers 50052 50053 50053 50054 50055
 ```
-
-python client.py localhost:50052 request_vote 1 2 0 0
-python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 0
-python client.py localhost:50051 append_entries 1 1 0 0 1 "set x 10" 2 "delete y" 0
-
-```
-
-python client.py localhost:50052 set_peers 50051 50053
 
 ```Client gửi tập command đến Server (Leader).
 Mô tả: Đưa "set x 10" "delete y" vào list() và gửi nó  cho Server (Leader), nhận về success(thành công hoặc thất bại).
@@ -66,7 +60,7 @@ raft_pb2.AppendCommandRequest(
 raft_pb2.AppendCommandResponse(
     term=term,
     leaderId=leader_id,
-    success =[]
+    success = true/false
 )
 
 

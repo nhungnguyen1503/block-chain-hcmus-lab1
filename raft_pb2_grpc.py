@@ -5,7 +5,7 @@ import warnings
 
 import raft_pb2 as raft__pb2
 
-GRPC_GENERATED_VERSION = '1.68.0'
+GRPC_GENERATED_VERSION = '1.68.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -54,6 +54,11 @@ class RaftStub(object):
                 request_serializer=raft__pb2.SetPeersRequest.SerializeToString,
                 response_deserializer=raft__pb2.SetPeersResponse.FromString,
                 _registered_method=True)
+        self.AppendCommands = channel.unary_unary(
+                '/raft.Raft/AppendCommands',
+                request_serializer=raft__pb2.AppendCommandsRequest.SerializeToString,
+                response_deserializer=raft__pb2.AppendCommandsResponse.FromString,
+                _registered_method=True)
 
 
 class RaftServicer(object):
@@ -83,6 +88,12 @@ class RaftServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AppendCommands(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RaftServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -105,6 +116,11 @@ def add_RaftServicer_to_server(servicer, server):
                     servicer.SetPeers,
                     request_deserializer=raft__pb2.SetPeersRequest.FromString,
                     response_serializer=raft__pb2.SetPeersResponse.SerializeToString,
+            ),
+            'AppendCommands': grpc.unary_unary_rpc_method_handler(
+                    servicer.AppendCommands,
+                    request_deserializer=raft__pb2.AppendCommandsRequest.FromString,
+                    response_serializer=raft__pb2.AppendCommandsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -215,6 +231,33 @@ class Raft(object):
             '/raft.Raft/SetPeers',
             raft__pb2.SetPeersRequest.SerializeToString,
             raft__pb2.SetPeersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AppendCommands(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/raft.Raft/AppendCommands',
+            raft__pb2.AppendCommandsRequest.SerializeToString,
+            raft__pb2.AppendCommandsResponse.FromString,
             options,
             channel_credentials,
             insecure,

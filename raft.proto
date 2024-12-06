@@ -7,6 +7,7 @@ service Raft {
     rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
     rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
     rpc SetPeers(SetPeersRequest) returns (SetPeersResponse);
+    rpc AppendCommands(AppendCommandsRequest) returns (AppendCommandsResponse);
 }
 
 message RequestVoteRequest {
@@ -54,4 +55,14 @@ message SetPeersRequest {
 message SetPeersResponse {
     bool success = 1;
     string message = 2;
+}
+
+message AppendCommandsRequest {
+    repeated string commands = 1; // Danh sách các command từ client
+}
+
+message AppendCommandsResponse {
+    int32 term = 1;       // Term của leader
+    string leaderId = 2;  // ID của leader
+    bool success = 3;     // Trạng thái của yêu cầu (thành công hoặc thất bại)
 }
