@@ -40,7 +40,6 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         
         self.votes_received = 0
         self.peers = peers
-        self.active_peers = set(peers)
         self.leader_id = None
         self.commit_index = 0
         self.last_applied = 0
@@ -74,12 +73,6 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         with self.lock:
             if self.state == 'leader' or self.tied_vote_in_progress:
                 return  
-            
-            # Check if there are missing peers in active_peers
-            missing_peers = [peer for peer in self.peers if peer not in self.active_peers]
-            if missing_peers:
-                logging.info(f"Node {self.node_id} not starting election due to missing peers: {missing_peers}")
-                return
 
             self.state = 'candidate'
             self.current_term += 1
@@ -94,16 +87,13 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         # Wait for election results with a slight delay for processing
         time.sleep(2)
         with self.lock:
-            if self.votes_received > len(self.active_peers) // 2:
-                print(self.votes_received)
-                print(self.active_peers)
-
+            if self.votes_received > len(self.peers) // 2:
                 self.state = 'leader'
                 self.leader_id = self.node_id
                 logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
                 self.reset_election_timer()
                 self.heartbeat()
-            elif self.votes_received == len(self.active_peers) // 2:
+            elif self.votes_received == len(self.peers) // 2:
                 # Tied vote detected
                 logging.info(f"Node {self.node_id} detected a tie in election for term {self.current_term}")
                 threading.Thread(target=self.handle_tied_vote).start()
@@ -130,7 +120,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 if response.voteGranted:
                     with self.lock:
                         self.votes_received += 1
-                        if self.votes_received > len(self.active_peers) // 2:  # Use active peers for majority calculation
+                        if self.votes_received > len(self.peers) // 2:  
                             self.state = 'leader'
                             self.leader_id = self.node_id
                             logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
@@ -138,8 +128,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                             self.heartbeat()
         except Exception as e:
             logging.error(f"Node {self.node_id} failed to contact Node {peer}: {e}")
-            # Consider the peer inactive if it fails
-            self.active_peers.discard(peer)
+           
 
     def heartbeat(self):
         while self.state == 'leader':
@@ -383,7 +372,6 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 new_peers = set(request.peers) - {self.node_id}  # Exclude itself
                 logging.info(f"Node {self.node_id} updating peers: {new_peers}")
                 self.peers = list(new_peers)
-                self.active_peers = set(new_peers)
                 self.nextIndex = {peer: len(self.log) for peer in self.peers}
             logging.info(f"Node {self.node_id} updated peers to: {self.peers}")
             return raft_pb2.SetPeersResponse(success=True, message="Peers updated successfully.")
@@ -402,7 +390,6 @@ def serve(node_id, port, peers):
     # Graceful shutdown handling
     def handle_termination(signum, frame):
         logging.info("Graceful shutdown initiated...")
-        raft_servicer.active_peers.remove(raft_servicer.node_id)
         raft_servicer.election_timer.cancel()
         server.stop(0)  # Stop the gRPC server
         sys.exit(0)
