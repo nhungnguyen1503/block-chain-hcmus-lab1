@@ -49,6 +49,21 @@ class PBFTServiceStub(object):
                 request_serializer=pbft__pb2.PBFTMessage.SerializeToString,
                 response_deserializer=pbft__pb2.Empty.FromString,
                 _registered_method=True)
+        self.ViewChange = channel.unary_unary(
+                '/pbft.PBFTService/ViewChange',
+                request_serializer=pbft__pb2.ViewChangeMessage.SerializeToString,
+                response_deserializer=pbft__pb2.Empty.FromString,
+                _registered_method=True)
+        self.NewView = channel.unary_unary(
+                '/pbft.PBFTService/NewView',
+                request_serializer=pbft__pb2.NewViewMessage.SerializeToString,
+                response_deserializer=pbft__pb2.Empty.FromString,
+                _registered_method=True)
+        self.ExchangePublicKey = channel.unary_unary(
+                '/pbft.PBFTService/ExchangePublicKey',
+                request_serializer=pbft__pb2.PublicKeyMessage.SerializeToString,
+                response_deserializer=pbft__pb2.Empty.FromString,
+                _registered_method=True)
 
 
 class PBFTServiceServicer(object):
@@ -72,6 +87,27 @@ class PBFTServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ViewChange(self, request, context):
+        """Thêm dịch vụ ViewChange
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def NewView(self, request, context):
+        """Thêm dịch vụ NewView
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExchangePublicKey(self, request, context):
+        """Dịch vụ trao đổi khóa công khai
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_PBFTServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -88,6 +124,21 @@ def add_PBFTServiceServicer_to_server(servicer, server):
             'Commit': grpc.unary_unary_rpc_method_handler(
                     servicer.Commit,
                     request_deserializer=pbft__pb2.PBFTMessage.FromString,
+                    response_serializer=pbft__pb2.Empty.SerializeToString,
+            ),
+            'ViewChange': grpc.unary_unary_rpc_method_handler(
+                    servicer.ViewChange,
+                    request_deserializer=pbft__pb2.ViewChangeMessage.FromString,
+                    response_serializer=pbft__pb2.Empty.SerializeToString,
+            ),
+            'NewView': grpc.unary_unary_rpc_method_handler(
+                    servicer.NewView,
+                    request_deserializer=pbft__pb2.NewViewMessage.FromString,
+                    response_serializer=pbft__pb2.Empty.SerializeToString,
+            ),
+            'ExchangePublicKey': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExchangePublicKey,
+                    request_deserializer=pbft__pb2.PublicKeyMessage.FromString,
                     response_serializer=pbft__pb2.Empty.SerializeToString,
             ),
     }
@@ -171,6 +222,87 @@ class PBFTService(object):
             target,
             '/pbft.PBFTService/Commit',
             pbft__pb2.PBFTMessage.SerializeToString,
+            pbft__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ViewChange(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pbft.PBFTService/ViewChange',
+            pbft__pb2.ViewChangeMessage.SerializeToString,
+            pbft__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def NewView(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pbft.PBFTService/NewView',
+            pbft__pb2.NewViewMessage.SerializeToString,
+            pbft__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExchangePublicKey(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pbft.PBFTService/ExchangePublicKey',
+            pbft__pb2.PublicKeyMessage.SerializeToString,
             pbft__pb2.Empty.FromString,
             options,
             channel_credentials,
