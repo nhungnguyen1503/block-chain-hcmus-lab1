@@ -70,6 +70,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         self.election_timer.start()
 
     def start_election(self):
+        
         with self.lock:
             if self.state == 'leader' or self.tied_vote_in_progress:
                 return  
@@ -83,21 +84,18 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             for peer in self.peers:
                 executor.submit(self.send_request_vote, peer)
         logging.info(f"Node {self.node_id} sent vote requests to peers: {self.peers}")
-        with ThreadPoolExecutor() as executor:
-            for peer in self.peers:
-                executor.submit(self.send_request_vote, peer)
-        logging.info(f"Node {self.node_id} sent vote requests to peers: {self.peers}")
+        
         
         # Wait for election results with a slight delay for processing
         time.sleep(2)
         with self.lock:
-            if self.votes_received > len(self.peers) // 2:
+            if self.votes_received > (len(self.peers) // 2):
                 self.state = 'leader'
                 self.leader_id = self.node_id
                 logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
                 self.reset_election_timer()
                 self.heartbeat()
-            elif self.votes_received == len(self.peers) // 2:
+            elif self.votes_received == (len(self.peers)  // 2):
                 # Tied vote detected
                 logging.info(f"Node {self.node_id} detected a tie in election for term {self.current_term}")
                 threading.Thread(target=self.handle_tied_vote).start()
@@ -118,13 +116,15 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                     lastLogIndex=len(self.log) - 1,
                     lastLogTerm=self.log[-1]['term'] if self.log else 0,
                 )
+               
                 logging.info(f"Node {self.node_id} sending RequestVote to {peer}: term={self.current_term}, lastLogIndex={request.lastLogIndex}, lastLogTerm={request.lastLogTerm}")
                 response = stub.RequestVote(request, timeout=500)
                 logging.info(f"Received RequestVote response from Node {peer}: {response}")
                 if response.voteGranted:
                     with self.lock:
                         self.votes_received += 1
-                        if self.votes_received > len(self.peers) // 2:  
+                        logging.info(f"Comparing {self.votes_received}")
+                        if self.votes_received > (len(self.peers)  // 2):  
                             self.state = 'leader'
                             self.leader_id = self.node_id
                             logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
