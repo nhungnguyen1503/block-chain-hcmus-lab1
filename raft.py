@@ -179,28 +179,32 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
     def recieve_commands_from_client(self, request):
         try:
             # Tạo danh sách entries từ các command trong request.commands
-            entries = []
+            new_entries = []
             for command in request.commands:
                 entry = {
                     "term": self.current_term,  # Sử dụng current_term của leader
                     "command": command          # Command nhận từ request
                 }
-                entries.append(entry)
+                new_entries.append(entry)
 
             # Log thông tin để kiểm tra
             logging.info(f"Received commands from client: {request.commands}")
-            logging.info(f"Generated log entries: {entries}")
+            logging.info(f"Generated log entries: {new_entries}")
 
 
-            self.log.extend(entries)
-            # Không cần phải gửi các entries này tới các server(Follower) khác, vì nó sẽ tự động gửi ở Heartbeat tiếp theo 
+            self.log.extend(new_entries)
+            self.save_log_to_file()
+
+            # ** Không cần phải gửi các entries này tới các server(Follower) khác, vì nó sẽ tự động gửi ở Heartbeat tiếp theo **
+
+            return raft_pb2.RequestVoteResponse(term=self.current_term, leaderId = str(self.node_id) ,success= True)
+
 
 
         except Exception as e:
             logging.error(f"Failed to process new entry from client: {e}")
+            return raft_pb2.RequestVoteResponse(term=self.current_term, leaderId = str(self.node_id) ,success= False)
 
-
-    
 
     def send_append_entries(self, peer):
         try:
