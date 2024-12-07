@@ -39,6 +39,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             self.current_term = self.log[-1]['term']
         
         self.votes_received = 0
+        self.heartbeat_responses = 0
         self.peers = peers
         self.leader_id = None
         self.commit_index = 0
@@ -122,7 +123,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 if response.voteGranted:
                     with self.lock:
                         self.votes_received += 1
-                        logging.info(f"Comparing {self.votes_received}")
+                        logging.info(f"Votes received: {self.votes_received}")
                         if self.votes_received > (len(self.peers)  // 2):  
                             self.state = 'leader'
                             self.leader_id = self.node_id
@@ -135,13 +136,22 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
 
     def heartbeat(self):
         while self.state == 'leader':
+
+            self.heartbeat_responses = 0
             logging.info("-" * 50)  # Separator does not need `extra`
             logging.info(f"Node {self.node_id} sending heartbeats to all peers")
 
             with ThreadPoolExecutor() as executor:
                 for peer in self.peers:
                     executor.submit(self.send_append_entries, peer)
+
+            logging.info(f"Node {self.node_id} received {self.heartbeat_responses} heartbeat responses")
+            if self.heartbeat_responses < (len(self.peers) // 2):
+                logging.info(f"Node {self.node_id} has lost quorum, returning to follower state")
+                self.state = 'follower'
+                self.reset_election_timer()
             time.sleep(2)
+
 
     # def recieve_entries_from_client(self, request):
     #     try:
@@ -227,6 +237,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 logging.info(f"Node {self.node_id} sending AppendEntries to Node {peer}: {request}")
                 response = stub.AppendEntries(request, timeout=5)
                 if response.success:
+                    self.heartbeat_responses += 1
                     self.nextIndex[peer] = len(self.log) # khi success thì đặt lại nextIndex 
                     logging.info(f"Node {peer} successfully appended entries.")
                 else:
