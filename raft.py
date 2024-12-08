@@ -39,12 +39,15 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             self.current_term = self.log[-1]['term']
         
         self.votes_received = 0
-        self.heartbeat_responses = 0
+        
         self.peers = peers
         self.leader_id = None
         self.commit_index = 0
         self.last_applied = 0
         self.lock = threading.Lock()
+
+        self.nextIndex= {peer: len(self.log) for peer in self.peers}
+        self.heartbeat_responses = {x: 1 for x in self.peers}
 
         self.kv_store = {}
         self.election_timeout = self.get_election_timeout()
@@ -53,9 +56,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         self.tied_vote_timeout = 8  # Timeout duration in seconds for tied votes
         self.tied_vote_in_progress = False  # Track if a tie vote timeout is in progress
 
-        self.nextIndex= {peer: len(self.log) for peer in self.peers}
-
-
+        
         # Attach a filter to ensure `node_id` is always available
         node_id_filter = NodeIDFilter(self.node_id)
         logging.getLogger().addFilter(node_id_filter)
@@ -80,6 +81,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             self.current_term += 1
             self.voted_for = self.node_id
             self.votes_received = 1
+            self.heartbeat_responses = {x: 1 for x in self.peers}
         logging.info(f"Node {self.node_id} starting election for term {self.current_term}")
         with ThreadPoolExecutor() as executor:
             for peer in self.peers:
@@ -89,13 +91,14 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         # Wait for election results with a slight delay for processing
         time.sleep(2)
         with self.lock:
-            if self.votes_received > (len(self.peers) // 2):
+            if self.votes_received > ((len(self.peers) + 1) // 2):
                 self.state = 'leader'
                 self.leader_id = self.node_id
+                self.heartbeat_responses = {x: 1 for x in self.peers}
                 logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
                 self.reset_election_timer()
                 self.heartbeat()
-            elif self.votes_received == (len(self.peers)  // 2):
+            elif self.votes_received == ((len(self.peers) + 1)  // 2):
                 # Tied vote detected
                 logging.info(f"Node {self.node_id} detected a tie in election for term {self.current_term}")
                 threading.Thread(target=self.handle_tied_vote).start()
@@ -124,7 +127,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                     with self.lock:
                         self.votes_received += 1
                         logging.info(f"Votes received: {self.votes_received}")
-                        if self.votes_received > (len(self.peers)  // 2):  
+                        if self.votes_received > ((len(self.peers) + 1)  // 2):  
                             self.state = 'leader'
                             self.leader_id = self.node_id
                             logging.info(f"Node {self.node_id} became leader for term {self.current_term}")
@@ -137,7 +140,12 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
     def heartbeat(self):
         while self.state == 'leader':
 
-            self.heartbeat_responses = 0
+            if((sum(self.heartbeat_responses.values()) + 1) <= ((len(self.peers) +1 ) // 2)):  # cộng thêm 1 của bản thân thì mạng mới đủ 100%
+                self.state = 'follower'
+                self.leader_id = None
+                break
+
+            self.heartbeat_responses = {x: 1 for x in self.peers}
             logging.info("-" * 50)  # Separator does not need `extra`
             logging.info(f"Node {self.node_id} sending heartbeats to all peers")
 
@@ -145,37 +153,13 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 for peer in self.peers:
                     executor.submit(self.send_append_entries, peer)
 
-            logging.info(f"Node {self.node_id} received {self.heartbeat_responses} heartbeat responses")
-            if self.heartbeat_responses < (len(self.peers) // 2):
-                logging.info(f"Node {self.node_id} has lost quorum, returning to follower state")
-                self.state = 'follower'
-                self.reset_election_timer()
+            # logging.info(f"Node {self.node_id} received {self.heartbeat_responses} heartbeat responses")
+            # if self.heartbeat_responses < (len(self.peers) // 2):
+            #     logging.info(f"Node {self.node_id} has lost quorum, returning to follower state")
+            #     self.state = 'follower'
+            #     self.reset_election_timer()
             time.sleep(2)
 
-
-    # def recieve_entries_from_client(self, request):
-    #     try:
-    #         # Tạo entry mới từ yêu cầu của client
-    #         new_entry = {"term": self.current_term, "command": request.command}
-    #         logging.info(f"Node {self.node_id} received new entry from client: {new_entry}")
-
-    #         # Thêm entry mới vào log của leader
-    #         with self.lock:
-    #             self.log.append(new_entry)
-    #             logging.info(f"Node {self.node_id} added new entry to log: {self.log}")
-
-    #         # Gửi entry mới tới các follower
-    #         _entries = [
-    #             raft_pb2.LogEntry(term=new_entry["term"], command=new_entry["command"])
-    #         ]
-
-    #         with ThreadPoolExecutor() as executor:
-    #                 for peer in self.peers:
-    #                     executor.submit(self.send_append_entries, peer, [])
-    #                 time.sleep(3.5)
-
-    #     except Exception as e:
-    #         logging.error(f"Failed to process new entry from client: {e}")
 
     def AppendCommands(self, request, context):
         try:
@@ -208,8 +192,6 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
 
             return raft_pb2.AppendCommandsResponse(term=self.current_term, leaderId = str(self.node_id) ,success= True)
 
-
-
         except Exception as e:
             logging.error(f"Failed to process new entry from client: {e}")
             return raft_pb2.AppendCommandsResponse(term=self.current_term, leaderId = str(self.node_id) ,success= False)
@@ -222,8 +204,10 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 prev_log_index = self.nextIndex[peer] - 1
                 if self.nextIndex[peer] == len(self.log): # Nếu Leader  và Follower giống nhau thì _entries = []
                     _entries = []
-                else:
+                elif prev_log_index >=0:
                     _entries = self.log[prev_log_index:]
+                elif prev_log_index < 0:
+                    _entries = self.log
                 
                 prev_log_term = self.log[prev_log_index]['term'] if prev_log_index >= 0 else 0
                 request = raft_pb2.AppendEntriesRequest(
@@ -237,10 +221,11 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 logging.info(f"Node {self.node_id} sending AppendEntries to Node {peer}: {request}")
                 response = stub.AppendEntries(request, timeout=5)
                 if response.success:
-                    self.heartbeat_responses += 1
+                    self.heartbeat_responses[peer] = 1
                     self.nextIndex[peer] = len(self.log) # khi success thì đặt lại nextIndex 
                     logging.info(f"Node {peer} successfully appended entries.")
                 else:
+                    self.heartbeat_responses[peer] = 1
                     logging.error(f"Node {peer} failed to append entries. Adjusting prevLogIndex and retrying...")
                     if response.term == self.current_term:
                         # Lùi nextIndex
@@ -251,6 +236,9 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                         logging.error("Term mismatch. Aborting append.")
                         
         except Exception as e:
+            # Dùng để kiểm tra xem có bao nhiêu Server đã bị mất kết nối với Leader
+            self.heartbeat_responses[peer] = 0 
+            print(":self.num_peer_fail: ",self.num_peer_fail)
             logging.error(f"Failed to send AppendEntries to Node {peer}: {e}")
 
     def RequestVote(self, request, context):
@@ -282,12 +270,28 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
                 self.current_term = request.term
                 self.state = 'follower'
                 self.leader_id = request.leaderId
+                
                 self.reset_election_timer()
             if request.entries:
                 print(request.entries[0].command)
             print("=================================================")
-            if request.prevLogIndex < len(self.log):
+            if request.prevLogIndex < len(self.log) and request.prevLogIndex >= 0:
                 print(self.log[request.prevLogIndex]['command'])
+            
+            ## Các Log bị Sai hoàn Toàn 
+            if request.prevLogIndex < 0:
+                self.log = []
+                for i, entry in enumerate(request.entries):
+                    self.log.append({"term": entry.term, "command": entry.command})
+                    logging.info(f"Node {self.node_id} appended new entry: {self.log[-1]}")
+
+                if request.leaderCommit > self.commit_index:
+                    self.commit_index = min(request.leaderCommit, len(self.log) - 1)
+                    logging.info(f"Node {self.node_id} updated commitIndex to {self.commit_index}")
+
+                logging.info(f"AppendEntries response from node {self.node_id}: term={self.current_term}, success=True")
+                self.save_log_to_file()
+                return raft_pb2.AppendEntriesResponse(term=self.current_term, success=True)
 
             # Bước 3: Kiểm tra prevLogIndex và prevLogTerm Và cả command
             if request.prevLogIndex >= 0:
@@ -310,7 +314,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
             # Bước 4: Xóa các entry conflict 
             for i, entry in enumerate(request.entries):
                 print("i của enum", i)
-                if len(self.log) > request.prevLogIndex + 1 + i:
+                if len(self.log) >= request.prevLogIndex + 1 + i:
                     print(self.log[request.prevLogIndex  + i], " and ", entry.term)
                     if self.log[request.prevLogIndex + i]['term'] != entry.term or self.log[request.prevLogIndex]['command'] != entry.command:
                         logging.info(f"Node {self.node_id} removing conflicting entries starting from index {request.prevLogIndex + i} and {i}")
@@ -382,11 +386,12 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
     
     def SetPeers(self, request, context):
         try:
-            with self.lock:
-                new_peers = set(request.peers) - {self.node_id}  # Exclude itself
-                logging.info(f"Node {self.node_id} updating peers: {new_peers}")
-                self.peers = list(new_peers)
-                self.nextIndex = {peer: len(self.log) for peer in self.peers}
+            logging.info(f"Node {self.node_id} updating peers: {request.peers}")
+            self.peers = list(request.peers)
+            self.nextIndex = {peer: len(self.log) for peer in self.peers}
+            # self.state = 'follower'
+            # self.start_election()
+
             logging.info(f"Node {self.node_id} updated peers to: {self.peers}")
             return raft_pb2.SetPeersResponse(success=True, message="Peers updated successfully.")
         except Exception as e:

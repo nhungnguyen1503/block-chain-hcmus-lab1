@@ -1,5 +1,0 @@
-1,set x 5
-1,increment x
-2,set y 20
-3,decrement y
-3,set x 10

@@ -71,8 +71,16 @@ def run_client(node_address, action, *args):
         
         elif action == 'set_peers':
             peers = list(map(int, args))
-            response = set_peers(stub, peers)
-            print(f"SetPeers response: success={response.success}, message={response.message}")
+
+            # Gửi đến từng peer trong danh sách
+            for peer_port in peers:
+                peer_address = f"localhost:{peer_port}"  # Giả định tất cả peers trên localhost
+                except_peers = list(set(peers) - {peer_port})
+                # print(except_peers)
+                with grpc.insecure_channel(peer_address) as peer_channel:
+                    peer_stub = raft_pb2_grpc.RaftStub(peer_channel)
+                    response = set_peers(peer_stub, except_peers)
+                    print(f"SetPeers response from {peer_address}: success={response.success}, message={response.message}")
 
         elif action == 'append_entries':
                 term = int(args[0])
