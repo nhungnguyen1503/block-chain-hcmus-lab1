@@ -64,7 +64,7 @@ class RaftServicer(raft_pb2_grpc.RaftServicer):
         logging.info(f"Node {self.node_id} initialized with peers: {self.peers}")
 
     def get_election_timeout(self):
-        return 10 + ( 3 * random.random())
+        return 7 + ( 3 * random.random())
 
     def reset_election_timer(self):
         self.election_timer.cancel()
